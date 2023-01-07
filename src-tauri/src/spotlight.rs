@@ -36,7 +36,6 @@ fn register_shortcut(window: &Window<Wry>) {
 
 fn register_spotlight_window_backdrop(window: &Window<Wry>) {
     let w = window.to_owned();
-
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
             w.hide().unwrap();
