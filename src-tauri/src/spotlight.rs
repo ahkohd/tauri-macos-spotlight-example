@@ -17,7 +17,7 @@ pub fn init_spotlight_window(window: Window<Wry>) {
     register_spotlight_window_backdrop(&window);
     set_spotlight_window_collection_behaviour(&window);
     set_window_above_menubar(&window);
-    window.set_focus();
+    window.set_focus().unwrap();
 }
 
 fn register_shortcut(window: &Window<Wry>) {
@@ -27,9 +27,9 @@ fn register_shortcut(window: &Window<Wry>) {
         position_window_at_the_center_of_the_monitor_with_cursor(&window);
 
         if window.is_visible().unwrap() {
-            window.hide();
+            window.hide().unwrap();
         } else {
-            window.set_focus();
+            window.set_focus().unwrap();
         }
     });
 }
@@ -39,7 +39,7 @@ fn register_spotlight_window_backdrop(window: &Window<Wry>) {
 
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
-            w.hide();
+            w.hide().unwrap();
         }
     });
 }
@@ -55,10 +55,6 @@ fn position_window_at_the_center_of_the_monitor_with_cursor(window: &Window<Wry>
 
         let handle: id = window.ns_window().unwrap() as _;
         let win_frame: NSRect = unsafe { handle.frame() };
-        let window_size = window
-            .outer_size()
-            .unwrap()
-            .to_logical::<f64>(monitor.scale_factor);
 
         window
             .set_position(LogicalPosition {
@@ -94,7 +90,6 @@ fn set_window_above_menubar(window: &Window<Wry>) {
     unsafe { handle.setLevel_((NSMainMenuWindowLevel + 2).into()) };
 }
 
-#[derive(Debug, Clone)]
 struct Monitor {
     pub name: Option<String>,
     pub size: PhysicalSize<u32>,
