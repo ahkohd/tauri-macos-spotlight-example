@@ -44,10 +44,7 @@ fn register_spotlight_window_backdrop(window: &Window<Wry>) {
     });
 }
 
-/**
-* Positions a given window at the center of the monitor with cursor
-*/
-
+/// Positions a given window at the center of the monitor with cursor
 fn position_window_at_the_center_of_the_monitor_with_cursor(window: &Window<Wry>) {
     if let Some(monitor) = get_monitor_with_cursor() {
         let display_size = monitor.size.to_logical::<f64>(monitor.scale_factor);
@@ -65,10 +62,7 @@ fn position_window_at_the_center_of_the_monitor_with_cursor(window: &Window<Wry>
     }
 }
 
-/**
-* Set the behaviours that makes the window appear on all worksapces.
-*/
-
+/// Set the behaviours that makes the window appear on all worksapces
 fn set_spotlight_window_collection_behaviour(window: &Window<Wry>) {
     let handle: id = window.ns_window().unwrap() as _;
     unsafe {
@@ -81,10 +75,7 @@ fn set_spotlight_window_collection_behaviour(window: &Window<Wry>) {
     };
 }
 
-/**
-* Set the window above menubar level
-*/
-
+/// Set the window above menubar level
 fn set_window_above_menubar(window: &Window<Wry>) {
     let handle: id = window.ns_window().unwrap() as _;
     unsafe { handle.setLevel_((NSMainMenuWindowLevel + 2).into()) };
@@ -119,10 +110,7 @@ extern "C" {
     pub fn NSMouseInRect(aPoint: NSPoint, aRect: NSRect, flipped: BOOL) -> BOOL;
 }
 
-/**
-* Returns the Monitor with cursor
-*/
-
+/// Returns the Monitor with cursor
 fn get_monitor_with_cursor() -> Option<Monitor> {
     objc::rc::autoreleasepool(|| {
         let mouse_location: NSPoint = unsafe { msg_send![class!(NSEvent), mouseLocation] };
@@ -167,10 +155,7 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
     })
 }
 
-/**
-* Converts NSString to Rust String
-*/
-
+/// Converts NSString to Rust String
 fn nsstring_to_string(ns_string: id) -> Option<String> {
     let utf8: id = unsafe { msg_send![ns_string, UTF8String] };
     if !utf8.is_null() {
