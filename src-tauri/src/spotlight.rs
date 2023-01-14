@@ -7,8 +7,7 @@ use cocoa::{
 };
 use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
-    GlobalShortcutManager, LogicalPosition, Manager, PhysicalPosition, PhysicalSize, Window,
-    WindowEvent, Wry,
+    GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent, Wry,
 };
 
 #[tauri::command]
@@ -51,13 +50,14 @@ fn position_window_at_the_center_of_the_monitor_with_cursor(window: &Window<Wry>
 
         let handle: id = window.ns_window().unwrap() as _;
         let win_frame: NSRect = unsafe { handle.frame() };
-
-        window
-            .set_position(LogicalPosition {
+        let rect = NSRect {
+            origin: NSPoint {
                 x: (display_pos.x + (display_size.width / 2.0)) - (win_frame.size.width / 2.0),
                 y: (display_pos.y + (display_size.height / 2.0)) - (win_frame.size.height / 2.0),
-            })
-            .unwrap();
+            },
+            size: win_frame.size,
+        };
+        let _: () = unsafe { msg_send![handle, setFrame: rect display: YES] };
     }
 }
 
@@ -81,27 +81,11 @@ fn set_window_above_menubar(window: &Window<Wry>) {
 }
 
 struct Monitor {
+    #[allow(dead_code)]
     pub name: Option<String>,
     pub size: PhysicalSize<u32>,
     pub position: PhysicalPosition<i32>,
     pub scale_factor: f64,
-}
-
-impl Monitor {
-    /// Returns the monitor's resolution.
-    pub fn size(&self) -> &PhysicalSize<u32> {
-        &self.size
-    }
-
-    /// Returns the top-left corner position of the monitor relative to the larger full screen area.
-    pub fn position(&self) -> &PhysicalPosition<i32> {
-        &self.position
-    }
-
-    /// Returns the scale factor that can be used to map logical pixels to physical pixels, and vice versa.
-    pub fn scale_factor(&self) -> f64 {
-        self.scale_factor
-    }
 }
 
 #[link(name = "Foundation", kind = "framework")]
