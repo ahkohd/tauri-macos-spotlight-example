@@ -2690,6 +2690,7 @@ version = "0.0.0"
 dependencies = [
  "cocoa",
  "objc",
+ "open",
  "serde",
  "serde_json",
  "tauri",

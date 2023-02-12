@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CStr};
+use std::sync::Mutex;
 
 use cocoa::{
     appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
@@ -9,6 +9,75 @@ use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
     GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent, Wry,
 };
+
+#[derive(Default)]
+pub struct Store {
+    frontmost_window_path: Option<String>,
+}
+
+#[derive(Default)]
+pub struct State(pub Mutex<Store>);
+
+#[macro_export]
+macro_rules! set_state {
+    ($app_handle:expr, $field:ident, $value:expr) => {{
+        let handle = $app_handle.app_handle();
+        handle
+            .state::<$crate::spotlight::State>()
+            .0
+            .lock()
+            .unwrap()
+            .$field = $value;
+    }};
+}
+
+#[macro_export]
+macro_rules! get_state {
+    ($app_handle:expr, $field:ident) => {{
+        let handle = $app_handle.app_handle();
+        let value = handle
+            .state::<$crate::spotlight::State>()
+            .0
+            .lock()
+            .unwrap()
+            .$field;
+
+        value
+    }};
+    ($app_handle:expr, $field:ident, $action:ident) => {{
+        let handle = $app_handle.app_handle();
+        let value = handle
+            .state::<$crate::spotlight::State>()
+            .0
+            .lock()
+            .unwrap()
+            .$field
+            .$action();
+
+        value
+    }};
+}
+
+#[macro_export]
+macro_rules! nsstring_to_string {
+    ($ns_string:expr) => {{
+        use objc::{sel, sel_impl};
+        let utf8: id = unsafe { objc::msg_send![$ns_string, UTF8String] };
+        let string = if !utf8.is_null() {
+            Some(unsafe {
+                {
+                    std::ffi::CStr::from_ptr(utf8 as *const std::ffi::c_char)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            })
+        } else {
+            None
+        };
+
+        string
+    }};
+}
 
 #[tauri::command]
 pub fn init_spotlight_window(window: Window<Wry>) {
@@ -22,12 +91,16 @@ pub fn init_spotlight_window(window: Window<Wry>) {
 fn register_shortcut(window: &Window<Wry>) {
     let window = window.to_owned();
     let mut shortcut_manager = window.app_handle().global_shortcut_manager();
+
+    let handle = window.app_handle();
     shortcut_manager.register("Cmd+k", move || {
         position_window_at_the_center_of_the_monitor_with_cursor(&window);
 
         if window.is_visible().unwrap() {
             window.hide().unwrap();
         } else {
+            set_state!(handle, frontmost_window_path, get_frontmost_app_path());
+            println!("frontmost window path {:?}", get_frontmost_app_path());
             window.set_focus().unwrap();
         }
     });
@@ -38,6 +111,12 @@ fn register_spotlight_window_backdrop(window: &Window<Wry>) {
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
             w.hide().unwrap();
+
+            if let Some(prev_frontmost_window_path) =
+                get_state!(w.app_handle(), frontmost_window_path, clone)
+            {
+                if open::that(prev_frontmost_window_path).is_ok() {}
+            }
         }
     });
 }
@@ -116,7 +195,8 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
         };
 
         if let Some(frame) = frame_with_cursor {
-            let screen_name = nsstring_to_string(unsafe { msg_send![next_screen, localizedName] });
+            let name: id = unsafe { msg_send![next_screen, localizedName] };
+            let screen_name = nsstring_to_string!(name);
             let scale_factor: CGFloat = unsafe { msg_send![next_screen, backingScaleFactor] };
             let scale_factor: f64 = scale_factor;
 
@@ -138,18 +218,10 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
     })
 }
 
-/// Converts NSString to Rust String
-fn nsstring_to_string(ns_string: id) -> Option<String> {
-    let utf8: id = unsafe { msg_send![ns_string, UTF8String] };
-    if !utf8.is_null() {
-        Some(unsafe {
-            {
-                CStr::from_ptr(utf8 as *const c_char)
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        })
-    } else {
-        None
-    }
+fn get_frontmost_app_path() -> Option<String> {
+    let shared_workspace: id = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
+    let frontmost_app: id = unsafe { msg_send![shared_workspace, frontmostApplication] };
+    let bundle_url: id = unsafe { msg_send![frontmost_app, bundleURL] };
+    let path: id = unsafe { msg_send![bundle_url, path] };
+    nsstring_to_string!(path)
 }

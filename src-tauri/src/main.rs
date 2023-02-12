@@ -5,8 +5,11 @@
 
 mod spotlight;
 
+use spotlight::State;
+
 fn main() {
     tauri::Builder::default()
+        .manage(State::default())
         .invoke_handler(tauri::generate_handler![spotlight::init_spotlight_window])
         .setup(move |app| {
             // Set the app's activation poicy to Accessory does the following behaviours:
