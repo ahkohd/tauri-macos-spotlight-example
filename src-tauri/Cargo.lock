@@ -2689,8 +2689,9 @@ name = "tauri-macos-spotlight-app"
 version = "0.0.0"
 dependencies = [
  "cocoa",
+ "core-foundation",
+ "core-graphics",
  "objc",
- "open",
  "serde",
  "serde_json",
  "tauri",

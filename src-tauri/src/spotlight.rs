@@ -1,62 +1,33 @@
-use std::sync::Mutex;
+use std::{ffi::c_void, ops::Deref, sync::Once};
 
 use cocoa::{
-    appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
+    appkit::{
+        CGFloat, NSApplicationActivationOptions, NSMainMenuWindowLevel, NSWindow,
+        NSWindowCollectionBehavior,
+    },
     base::{id, nil, BOOL, NO, YES},
     foundation::{NSPoint, NSRect},
+};
+use core_foundation::{
+    base::{CFRelease, FromVoid},
+    dictionary::CFDictionary,
+    number::{kCFNumberIntType, CFNumberGetValue, CFNumberRef},
+};
+use core_graphics::{
+    display::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CFArrayGetCount, CFArrayGetValueAtIndex, CFDictionaryGetValueIfPresent, CFDictionaryRef,
+        CGRect, CGWindowListCopyWindowInfo, CGWindowListOption,
+    },
+    window::{kCGWindowBounds, kCGWindowOwnerPID},
 };
 use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
     GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent, Wry,
 };
 
-#[derive(Default)]
-pub struct Store {
-    frontmost_window_path: Option<String>,
-}
-
-#[derive(Default)]
-pub struct State(pub Mutex<Store>);
-
-#[macro_export]
-macro_rules! set_state {
-    ($app_handle:expr, $field:ident, $value:expr) => {{
-        let handle = $app_handle.app_handle();
-        handle
-            .state::<$crate::spotlight::State>()
-            .0
-            .lock()
-            .unwrap()
-            .$field = $value;
-    }};
-}
-
-#[macro_export]
-macro_rules! get_state {
-    ($app_handle:expr, $field:ident) => {{
-        let handle = $app_handle.app_handle();
-        let value = handle
-            .state::<$crate::spotlight::State>()
-            .0
-            .lock()
-            .unwrap()
-            .$field;
-
-        value
-    }};
-    ($app_handle:expr, $field:ident, $action:ident) => {{
-        let handle = $app_handle.app_handle();
-        let value = handle
-            .state::<$crate::spotlight::State>()
-            .0
-            .lock()
-            .unwrap()
-            .$field
-            .$action();
-
-        value
-    }};
-}
+#[allow(non_camel_case_types)]
+type pid_t = i32;
 
 #[macro_export]
 macro_rules! nsstring_to_string {
@@ -79,44 +50,57 @@ macro_rules! nsstring_to_string {
     }};
 }
 
+fn cgnumber_to<T: Default>(number: *const c_void) -> Result<T, ()> {
+    let mut value: T = T::default();
+    if unsafe {
+        CFNumberGetValue(
+            number as CFNumberRef,
+            kCFNumberIntType,
+            (&mut value) as *mut _ as *mut c_void,
+        )
+    } {
+        return Ok(value);
+    }
+    Err(())
+}
+
+static INIT: Once = Once::new();
+
 #[tauri::command]
 pub fn init_spotlight_window(window: Window<Wry>) {
-    register_shortcut(&window);
-    register_spotlight_window_backdrop(&window);
-    set_spotlight_window_collection_behaviour(&window);
-    set_window_above_menubar(&window);
-    window.set_focus().unwrap();
+    INIT.call_once(|| {
+        register_shortcut(&window);
+        register_spotlight_window_backdrop(&window);
+        set_spotlight_window_collection_behaviour(&window);
+        set_window_level(&window);
+        window.set_focus().unwrap();
+    });
 }
 
 fn register_shortcut(window: &Window<Wry>) {
     let window = window.to_owned();
     let mut shortcut_manager = window.app_handle().global_shortcut_manager();
 
-    let handle = window.app_handle();
-    shortcut_manager.register("Cmd+k", move || {
-        position_window_at_the_center_of_the_monitor_with_cursor(&window);
+    shortcut_manager
+        .register("Cmd+k", move || {
+            position_window_at_the_center_of_the_monitor_with_cursor(&window);
 
-        if window.is_visible().unwrap() {
-            window.hide().unwrap();
-        } else {
-            set_state!(handle, frontmost_window_path, get_frontmost_app_path());
-            println!("frontmost window path {:?}", get_frontmost_app_path());
-            window.set_focus().unwrap();
-        }
-    });
+            if window.is_visible().unwrap() {
+                refocus_window_behind_spotlight_window();
+                window.hide().unwrap();
+            } else {
+                window.set_focus().unwrap();
+            };
+        })
+        .unwrap();
 }
 
 fn register_spotlight_window_backdrop(window: &Window<Wry>) {
     let w = window.to_owned();
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
+            refocus_window_behind_spotlight_window();
             w.hide().unwrap();
-
-            if let Some(prev_frontmost_window_path) =
-                get_state!(w.app_handle(), frontmost_window_path, clone)
-            {
-                if open::that(prev_frontmost_window_path).is_ok() {}
-            }
         }
     });
 }
@@ -153,10 +137,9 @@ fn set_spotlight_window_collection_behaviour(window: &Window<Wry>) {
     };
 }
 
-/// Set the window above menubar level
-fn set_window_above_menubar(window: &Window<Wry>) {
+fn set_window_level(window: &Window<Wry>) {
     let handle: id = window.ns_window().unwrap() as _;
-    unsafe { handle.setLevel_((NSMainMenuWindowLevel + 2).into()) };
+    unsafe { handle.setLevel_((NSMainMenuWindowLevel).into()) };
 }
 
 struct Monitor {
@@ -218,10 +201,142 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
     })
 }
 
-fn get_frontmost_app_path() -> Option<String> {
-    let shared_workspace: id = unsafe { msg_send![class!(NSWorkspace), sharedWorkspace] };
-    let frontmost_app: id = unsafe { msg_send![shared_workspace, frontmostApplication] };
-    let bundle_url: id = unsafe { msg_send![frontmost_app, bundleURL] };
-    let path: id = unsafe { msg_send![bundle_url, path] };
-    nsstring_to_string!(path)
+/// Try to restore focus to the window behind the spotlight window
+fn refocus_window_behind_spotlight_window() {
+    if let Ok(owner_id) = get_window_behind_owner_id() {
+        let running_app: id = unsafe {
+            msg_send![
+                class!(NSRunningApplication),
+                runningApplicationWithProcessIdentifier: owner_id
+            ]
+        };
+
+        let _: () = unsafe {
+            msg_send![
+                running_app,
+                activateWithOptions:
+                    NSApplicationActivationOptions::NSApplicationActivateIgnoringOtherApps
+            ]
+        };
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    CouldNotGetWindowsList,
+    NoWindowBehind,
+}
+
+/// Gets the owner id of the window behind the spotlight window
+fn get_window_behind_owner_id() -> Result<pid_t, Error> {
+    let process_info: id = unsafe { msg_send![class!(NSProcessInfo), processInfo] };
+    let pid: pid_t = unsafe { msg_send![process_info, processIdentifier] };
+
+    let window_list_options: CGWindowListOption =
+        kCGWindowListExcludeDesktopElements | kCGWindowListOptionOnScreenOnly;
+    let windows = unsafe { CGWindowListCopyWindowInfo(window_list_options, kCGNullWindowID) };
+
+    if windows.is_null() {
+        return Err(Error::CouldNotGetWindowsList);
+    }
+
+    let count = unsafe { CFArrayGetCount(windows) };
+    let menubar_height = get_menubar_heights().iter().max().unwrap().to_owned();
+    let mut found_spotlight_window = false;
+
+    for i in 0..count {
+        let window = unsafe { CFArrayGetValueAtIndex(windows, i) as CFDictionaryRef };
+        if window.is_null() {
+            continue;
+        }
+
+        let mut owner_pid: *const c_void = std::ptr::null();
+        if unsafe {
+            CFDictionaryGetValueIfPresent(window, kCGWindowOwnerPID as *mut c_void, &mut owner_pid)
+        } == 0
+        {
+            continue;
+        }
+        if owner_pid.is_null() {
+            continue;
+        }
+        let owner_pid = match cgnumber_to::<i32>(owner_pid) {
+            Ok(num) => num,
+            Err(_) => continue,
+        } as pid_t;
+
+        if !found_spotlight_window {
+            if owner_pid == pid {
+                found_spotlight_window = true;
+            }
+
+            continue;
+        }
+
+        let mut window_bounds: *const c_void = std::ptr::null();
+        if unsafe {
+            CFDictionaryGetValueIfPresent(
+                window,
+                kCGWindowBounds as *mut c_void,
+                &mut window_bounds,
+            )
+        } == 0
+        {
+            continue;
+        }
+        if window_bounds.is_null() {
+            continue;
+        }
+        let window_bounds = unsafe { CFDictionary::from_void(window_bounds) };
+        let rect = match CGRect::from_dict_representation(window_bounds.deref()) {
+            None => {
+                continue;
+            }
+            Some(rect) => rect,
+        };
+
+        let is_menubar_window = menubar_height as f32 >= rect.size.height as f32;
+        if !is_menubar_window {
+            unsafe {
+                CFRelease(windows.cast());
+            };
+
+            return Ok(owner_pid);
+        }
+    }
+
+    unsafe {
+        CFRelease(windows.cast());
+    };
+
+    Err(Error::NoWindowBehind)
+}
+
+/// Returns a list of the height of the menubar on available screens
+pub fn get_menubar_heights() -> Vec<i32> {
+    let mut result: Vec<i32> = vec![];
+
+    objc::rc::autoreleasepool(|| {
+        let screens: id = unsafe { msg_send![class!(NSScreen), screens] };
+        let screens_iter: id = unsafe { msg_send![screens, objectEnumerator] };
+        let mut next_screen: id;
+
+        loop {
+            next_screen = unsafe { msg_send![screens_iter, nextObject] };
+            if next_screen == nil {
+                break;
+            }
+
+            let frame: NSRect = unsafe { msg_send![next_screen, frame] };
+            let visible_frame: NSRect = unsafe { msg_send![next_screen, visibleFrame] };
+            let menubar_height = frame.size.height
+                - visible_frame.size.height
+                - (visible_frame.origin.y - frame.origin.y)
+                - 1.0;
+
+            result.push(menubar_height as i32)
+        }
+    });
+
+    result
 }
