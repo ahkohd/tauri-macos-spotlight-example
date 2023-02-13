@@ -81,16 +81,26 @@ fn register_shortcut(window: &Window<Wry>) {
     let window = window.to_owned();
     let mut shortcut_manager = window.app_handle().global_shortcut_manager();
 
+    let w = window.clone();
     shortcut_manager
         .register("Cmd+k", move || {
-            position_window_at_the_center_of_the_monitor_with_cursor(&window);
+            position_window_at_the_center_of_the_monitor_with_cursor(&w);
 
+            if w.is_visible().unwrap() {
+                refocus_window_behind_spotlight_window();
+                w.hide().unwrap();
+            } else {
+                w.set_focus().unwrap();
+            };
+        })
+        .unwrap();
+
+    shortcut_manager
+        .register("Escape", move || {
             if window.is_visible().unwrap() {
                 refocus_window_behind_spotlight_window();
                 window.hide().unwrap();
-            } else {
-                window.set_focus().unwrap();
-            };
+            }
         })
         .unwrap();
 }
