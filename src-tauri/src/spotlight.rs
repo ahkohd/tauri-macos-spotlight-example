@@ -1,10 +1,7 @@
 use std::{ffi::c_void, ops::Deref, sync::Once};
 
 use cocoa::{
-    appkit::{
-        CGFloat, NSApplicationActivationOptions, NSMainMenuWindowLevel, NSWindow,
-        NSWindowCollectionBehavior,
-    },
+    appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
     base::{id, nil, BOOL, NO, YES},
     foundation::{NSPoint, NSRect},
 };
@@ -15,16 +12,19 @@ use core_foundation::{
 };
 use core_graphics::{
     display::{
-        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
-        CFArrayGetCount, CFArrayGetValueAtIndex, CFDictionaryGetValueIfPresent, CFDictionaryRef,
-        CGRect, CGWindowListCopyWindowInfo, CGWindowListOption,
+        kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenBelowWindow,
+        kCGWindowListOptionOnScreenOnly, CFArrayGetCount, CFArrayGetValueAtIndex,
+        CFDictionaryGetValueIfPresent, CFDictionaryRef, CGRect, CGWindowID,
+        CGWindowListCopyWindowInfo, CGWindowListOption,
     },
-    window::{kCGWindowBounds, kCGWindowOwnerPID},
+    window::{kCGWindowBounds, kCGWindowNumber, kCGWindowOwnerPID},
 };
 use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
     GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent, Wry,
 };
+
+use crate::accessibility::{bring_window_to_top, focus_window, get_axuielements};
 
 #[allow(non_camel_case_types)]
 type pid_t = i32;
@@ -72,7 +72,7 @@ pub fn init_spotlight_window(window: Window<Wry>) {
         register_shortcut(&window);
         register_spotlight_window_backdrop(&window);
         set_spotlight_window_collection_behaviour(&window);
-        set_window_level(&window);
+        set_above_main_window_level(&window);
         window.set_focus().unwrap();
     });
 }
@@ -87,7 +87,7 @@ fn register_shortcut(window: &Window<Wry>) {
             position_window_at_the_center_of_the_monitor_with_cursor(&w);
 
             if w.is_visible().unwrap() {
-                refocus_window_behind_spotlight_window();
+                focus_window_behind(&w);
                 w.hide().unwrap();
             } else {
                 w.set_focus().unwrap();
@@ -98,7 +98,7 @@ fn register_shortcut(window: &Window<Wry>) {
     shortcut_manager
         .register("Escape", move || {
             if window.is_visible().unwrap() {
-                refocus_window_behind_spotlight_window();
+                focus_window_behind(&window);
                 window.hide().unwrap();
             }
         })
@@ -109,7 +109,6 @@ fn register_spotlight_window_backdrop(window: &Window<Wry>) {
     let w = window.to_owned();
     window.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
-            refocus_window_behind_spotlight_window();
             w.hide().unwrap();
         }
     });
@@ -147,9 +146,9 @@ fn set_spotlight_window_collection_behaviour(window: &Window<Wry>) {
     };
 }
 
-fn set_window_level(window: &Window<Wry>) {
+fn set_above_main_window_level(window: &Window<Wry>) {
     let handle: id = window.ns_window().unwrap() as _;
-    unsafe { handle.setLevel_((NSMainMenuWindowLevel).into()) };
+    unsafe { handle.setLevel_((NSMainMenuWindowLevel + 2).into()) };
 }
 
 struct Monitor {
@@ -211,23 +210,18 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
     })
 }
 
-/// Try to restore focus to the window behind the spotlight window
-fn refocus_window_behind_spotlight_window() {
-    if let Ok(owner_id) = get_window_behind_owner_id() {
-        let running_app: id = unsafe {
-            msg_send![
-                class!(NSRunningApplication),
-                runningApplicationWithProcessIdentifier: owner_id
-            ]
-        };
+/// Try to restore focus to the window behind
+fn focus_window_behind(window: &Window<Wry>) {
+    if let Ok((owner_id, window_id)) = get_window_behind_owner_id(window) {
+        if let Ok((ax_app_ref, ax_window_ref)) =
+            get_axuielements(owner_id, window_id, window.app_handle())
+        {
+            if bring_window_to_top(ax_app_ref, ax_window_ref).is_ok()
+                && focus_window(ax_window_ref).is_ok()
+            {}
 
-        let _: () = unsafe {
-            msg_send![
-                running_app,
-                activateWithOptions:
-                    NSApplicationActivationOptions::NSApplicationActivateIgnoringOtherApps
-            ]
-        };
+            unsafe { CFRelease(ax_app_ref.cast()) };
+        }
     }
 }
 
@@ -238,50 +232,57 @@ pub enum Error {
 }
 
 /// Gets the owner id of the window behind the spotlight window
-fn get_window_behind_owner_id() -> Result<pid_t, Error> {
-    let process_info: id = unsafe { msg_send![class!(NSProcessInfo), processInfo] };
-    let pid: pid_t = unsafe { msg_send![process_info, processIdentifier] };
-
-    let window_list_options: CGWindowListOption =
-        kCGWindowListExcludeDesktopElements | kCGWindowListOptionOnScreenOnly;
-    let windows = unsafe { CGWindowListCopyWindowInfo(window_list_options, kCGNullWindowID) };
+fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Error> {
+    let handle: id = window.ns_window().unwrap() as _;
+    let window_number: CGWindowID = unsafe { msg_send![handle, windowNumber] };
+    let window_list_options: CGWindowListOption = kCGWindowListExcludeDesktopElements
+        | kCGWindowListOptionOnScreenOnly
+        | kCGWindowListOptionOnScreenBelowWindow;
+    let windows = unsafe { CGWindowListCopyWindowInfo(window_list_options, window_number) };
 
     if windows.is_null() {
         return Err(Error::CouldNotGetWindowsList);
     }
 
-    let count = unsafe { CFArrayGetCount(windows) };
     let menubar_height = get_menubar_heights().iter().max().unwrap().to_owned();
-    let mut found_spotlight_window = false;
+    let ignore_list = ["com.apple.notification"];
 
+    let count = unsafe { CFArrayGetCount(windows) };
     for i in 0..count {
         let window = unsafe { CFArrayGetValueAtIndex(windows, i) as CFDictionaryRef };
         if window.is_null() {
             continue;
         }
 
-        let mut owner_pid: *const c_void = std::ptr::null();
+        let mut owner_id: *const c_void = std::ptr::null();
         if unsafe {
-            CFDictionaryGetValueIfPresent(window, kCGWindowOwnerPID as *mut c_void, &mut owner_pid)
+            CFDictionaryGetValueIfPresent(window, kCGWindowOwnerPID as *mut c_void, &mut owner_id)
         } == 0
         {
             continue;
         }
-        if owner_pid.is_null() {
+        if owner_id.is_null() {
             continue;
         }
-        let owner_pid = match cgnumber_to::<i32>(owner_pid) {
+        let owner_id = match cgnumber_to::<i32>(owner_id) {
             Ok(num) => num,
             Err(_) => continue,
         } as pid_t;
 
-        if !found_spotlight_window {
-            if owner_pid == pid {
-                found_spotlight_window = true;
-            }
-
+        let mut window_id: *const c_void = std::ptr::null();
+        if unsafe {
+            CFDictionaryGetValueIfPresent(window, kCGWindowNumber as *mut c_void, &mut window_id)
+        } == 0
+        {
             continue;
         }
+        if window_id.is_null() {
+            continue;
+        }
+        let window_id = match cgnumber_to::<u32>(window_id) {
+            Ok(num) => num,
+            Err(_) => continue,
+        };
 
         let mut window_bounds: *const c_void = std::ptr::null();
         if unsafe {
@@ -306,12 +307,29 @@ fn get_window_behind_owner_id() -> Result<pid_t, Error> {
         };
 
         let is_menubar_window = menubar_height as f32 >= rect.size.height as f32;
-        if !is_menubar_window {
+        let is_likely_a_floating_element = 80.0 >= rect.size.height;
+        let is_ignored = {
+            let running_app: id = unsafe {
+                msg_send![
+                    class!(NSRunningApplication),
+                    runningApplicationWithProcessIdentifier: owner_id
+                ]
+            };
+            let bundle_id: id = unsafe { msg_send![running_app, bundleIdentifier] };
+
+            if let Some(bundle_id) = nsstring_to_string!(bundle_id) {
+                ignore_list.iter().any(|item| bundle_id.contains(item))
+            } else {
+                true
+            }
+        };
+
+        if !is_menubar_window && !is_likely_a_floating_element && !is_ignored {
             unsafe {
                 CFRelease(windows.cast());
             };
 
-            return Ok(owner_pid);
+            return Ok((owner_id, window_id));
         }
     }
 
@@ -323,7 +341,7 @@ fn get_window_behind_owner_id() -> Result<pid_t, Error> {
 }
 
 /// Returns a list of the height of the menubar on available screens
-pub fn get_menubar_heights() -> Vec<i32> {
+fn get_menubar_heights() -> Vec<i32> {
     let mut result: Vec<i32> = vec![];
 
     objc::rc::autoreleasepool(|| {
