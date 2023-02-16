@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ops::Deref, sync::Once};
+use std::{ffi::c_void, sync::Once};
 
 use cocoa::{
     appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
@@ -6,18 +6,17 @@ use cocoa::{
     foundation::{NSPoint, NSRect},
 };
 use core_foundation::{
-    base::{CFRelease, FromVoid},
-    dictionary::CFDictionary,
+    base::CFRelease,
     number::{kCFNumberIntType, CFNumberGetValue, CFNumberRef},
 };
 use core_graphics::{
     display::{
         kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenBelowWindow,
         kCGWindowListOptionOnScreenOnly, CFArrayGetCount, CFArrayGetValueAtIndex,
-        CFDictionaryGetValueIfPresent, CFDictionaryRef, CGRect, CGWindowID,
-        CGWindowListCopyWindowInfo, CGWindowListOption,
+        CFDictionaryGetValueIfPresent, CFDictionaryRef, CGWindowID, CGWindowListCopyWindowInfo,
+        CGWindowListOption,
     },
-    window::{kCGWindowBounds, kCGWindowNumber, kCGWindowOwnerPID},
+    window::{kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID},
 };
 use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
@@ -28,6 +27,38 @@ use crate::accessibility::{bring_window_to_top, focus_window, get_axuielements};
 
 #[allow(non_camel_case_types)]
 type pid_t = i32;
+type CGWindowLevelKey = i32;
+type CGWindowLevel = i32;
+
+#[link(name = "Foundation", kind = "framework")]
+extern "C" {
+    pub fn NSMouseInRect(aPoint: NSPoint, aRect: NSRect, flipped: BOOL) -> BOOL;
+    pub fn CGWindowLevelForKey(key: CGWindowLevelKey) -> CGWindowLevel;
+}
+
+#[allow(dead_code)]
+enum _CGWindowLevelKey {
+    BaseWindowLevelKey = 0,
+    MinimumWindowLevelKey = 1,
+    DesktopWindowLevelKey = 2,
+    BackstopMenuLevelKey = 3,
+    NormalWindowLevelKey = 4,
+    FloatingWindowLevelKey = 5,
+    TornOffMenuWindowLevelKey = 6,
+    DockWindowLevelKey = 7,
+    MainMenuWindowLevelKey = 8,
+    StatusWindowLevelKey = 9,
+    ModalPanelWindowLevelKey = 10,
+    PopUpMenuWindowLevelKey = 11,
+    DraggingWindowLevelKey = 12,
+    ScreenSaverWindowLevelKey = 13,
+    MaximumWindowLevelKey = 14,
+    OverlayWindowLevelKey = 15,
+    HelpWindowLevelKey = 16,
+    UtilityWindowLevelKey = 17,
+    DesktopIconWindowLevelKey = 18,
+    NumberOfWindowLevelKeys = 19,
+}
 
 #[macro_export]
 macro_rules! nsstring_to_string {
@@ -159,11 +190,6 @@ struct Monitor {
     pub scale_factor: f64,
 }
 
-#[link(name = "Foundation", kind = "framework")]
-extern "C" {
-    pub fn NSMouseInRect(aPoint: NSPoint, aRect: NSRect, flipped: BOOL) -> BOOL;
-}
-
 /// Returns the Monitor with cursor
 fn get_monitor_with_cursor() -> Option<Monitor> {
     objc::rc::autoreleasepool(|| {
@@ -234,6 +260,7 @@ pub enum Error {
 /// Gets the owner id of the window behind the spotlight window
 fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Error> {
     let handle: id = window.ns_window().unwrap() as _;
+
     let window_number: CGWindowID = unsafe { msg_send![handle, windowNumber] };
     let window_list_options: CGWindowListOption = kCGWindowListExcludeDesktopElements
         | kCGWindowListOptionOnScreenOnly
@@ -243,9 +270,6 @@ fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Erro
     if windows.is_null() {
         return Err(Error::CouldNotGetWindowsList);
     }
-
-    let menubar_height = get_menubar_heights().iter().max().unwrap().to_owned();
-    let ignore_list = ["com.apple.notification"];
 
     let count = unsafe { CFArrayGetCount(windows) };
     for i in 0..count {
@@ -284,47 +308,42 @@ fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Erro
             Err(_) => continue,
         };
 
-        let mut window_bounds: *const c_void = std::ptr::null();
+        let mut window_layer: *const c_void = std::ptr::null();
         if unsafe {
-            CFDictionaryGetValueIfPresent(
-                window,
-                kCGWindowBounds as *mut c_void,
-                &mut window_bounds,
-            )
+            CFDictionaryGetValueIfPresent(window, kCGWindowLayer as *mut c_void, &mut window_layer)
         } == 0
         {
             continue;
         }
-        if window_bounds.is_null() {
+        if window_layer.is_null() {
             continue;
         }
-        let window_bounds = unsafe { CFDictionary::from_void(window_bounds) };
-        let rect = match CGRect::from_dict_representation(window_bounds.deref()) {
-            None => {
-                continue;
-            }
-            Some(rect) => rect,
+        let window_layer = match cgnumber_to::<CGWindowLevel>(window_layer) {
+            Ok(num) => num,
+            Err(_) => continue,
         };
 
-        let is_menubar_window = menubar_height as f32 >= rect.size.height as f32;
-        let is_likely_a_floating_element = 80.0 >= rect.size.height;
-        let is_ignored = {
-            let running_app: id = unsafe {
-                msg_send![
-                    class!(NSRunningApplication),
-                    runningApplicationWithProcessIdentifier: owner_id
-                ]
-            };
-            let bundle_id: id = unsafe { msg_send![running_app, bundleIdentifier] };
-
-            if let Some(bundle_id) = nsstring_to_string!(bundle_id) {
-                ignore_list.iter().any(|item| bundle_id.contains(item))
-            } else {
-                true
-            }
+        let floating_window_level = unsafe {
+            CGWindowLevelForKey(_CGWindowLevelKey::FloatingWindowLevelKey as CGWindowLevelKey)
+        };
+        let main_menu_window_level = unsafe {
+            CGWindowLevelForKey(_CGWindowLevelKey::MainMenuWindowLevelKey as CGWindowLevelKey)
         };
 
-        if !is_menubar_window && !is_likely_a_floating_element && !is_ignored {
+        // Window layer indicates:
+        // 0 - that the window is behind all other windows on the screen
+        //     it implies that might not be visible and is obscured by any other windows that are
+        //     on top of it.
+        // 1 - that the window is displayed above the desktop background, but below most other windows on the screen.
+        //     it's likely to be partially or fully obscured by other windows
+        // 2 - that the window is displayed above most other windows on the screen, it's likely
+        //     visible and accessible to the user
+        // 3 - (NSFloatingWindowLevel) that is displayed above most other windows on the screen,
+        //     it's floating - always on top
+        // 24 - that the window is the main menu, that displays the menubar at the top of the
+        //     screen. Full-screen app window is displayed above this level
+
+        if window_layer < floating_window_level || window_layer > main_menu_window_level {
             unsafe {
                 CFRelease(windows.cast());
             };
@@ -338,33 +357,4 @@ fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Erro
     };
 
     Err(Error::NoWindowBehind)
-}
-
-/// Returns a list of the height of the menubar on available screens
-fn get_menubar_heights() -> Vec<i32> {
-    let mut result: Vec<i32> = vec![];
-
-    objc::rc::autoreleasepool(|| {
-        let screens: id = unsafe { msg_send![class!(NSScreen), screens] };
-        let screens_iter: id = unsafe { msg_send![screens, objectEnumerator] };
-        let mut next_screen: id;
-
-        loop {
-            next_screen = unsafe { msg_send![screens_iter, nextObject] };
-            if next_screen == nil {
-                break;
-            }
-
-            let frame: NSRect = unsafe { msg_send![next_screen, frame] };
-            let visible_frame: NSRect = unsafe { msg_send![next_screen, visibleFrame] };
-            let menubar_height = frame.size.height
-                - visible_frame.size.height
-                - (visible_frame.origin.y - frame.origin.y)
-                - 1.0;
-
-            result.push(menubar_height as i32)
-        }
-    });
-
-    result
 }
