@@ -108,30 +108,25 @@ pub fn init_spotlight_window(window: Window<Wry>) {
     });
 }
 
+#[tauri::command]
+pub fn hide_spotlight(window: Window<Wry>) {
+    focus_window_behind(&window);
+    window.hide().unwrap();
+}
+
 fn register_shortcut(window: &Window<Wry>) {
     let window = window.to_owned();
     let mut shortcut_manager = window.app_handle().global_shortcut_manager();
 
-    let w = window.clone();
     shortcut_manager
         .register("Cmd+k", move || {
-            position_window_at_the_center_of_the_monitor_with_cursor(&w);
+            position_window_at_the_center_of_the_monitor_with_cursor(&window);
 
-            if w.is_visible().unwrap() {
-                focus_window_behind(&w);
-                w.hide().unwrap();
-            } else {
-                w.set_focus().unwrap();
-            };
-        })
-        .unwrap();
-
-    shortcut_manager
-        .register("Escape", move || {
             if window.is_visible().unwrap() {
-                focus_window_behind(&window);
-                window.hide().unwrap();
-            }
+                hide_spotlight(window.clone());
+            } else {
+                window.set_focus().unwrap();
+            };
         })
         .unwrap();
 }
