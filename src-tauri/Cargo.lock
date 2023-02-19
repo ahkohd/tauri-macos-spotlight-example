@@ -3,25 +3,6 @@
 version = 3
 
 [[package]]
-name = "accessibility"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68ad4ccded014d35a7b1a262bb1ebbc076593189748f0ff6d2ba19f8ddfecef0"
-dependencies = [
- "accessibility-sys",
- "core-foundation",
-]
-
-[[package]]
-name = "accessibility-sys"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf09354dda54177da27bcb8b9b83d8cab947db1dc1538a310a5e9da1c57fd4c2"
-dependencies = [
- "core-foundation-sys",
-]
-
-[[package]]
 name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1324,16 +1305,6 @@ dependencies = [
  "objc-foundation",
  "objc_id",
  "time",
-]
-
-[[package]]
-name = "macos-accessibility-client"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edf7710fbff50c24124331760978fb9086d6de6288dcdb38b25a97f8b1bdebbb"
-dependencies = [
- "core-foundation",
- "core-foundation-sys",
 ]
 
 [[package]]
@@ -2717,12 +2688,9 @@ dependencies = [
 name = "tauri-macos-spotlight-app"
 version = "0.0.0"
 dependencies = [
- "accessibility",
- "accessibility-sys",
  "cocoa",
  "core-foundation",
  "core-graphics",
- "macos-accessibility-client",
  "objc",
  "serde",
  "serde_json",

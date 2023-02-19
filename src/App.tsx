@@ -2,8 +2,6 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import useEscape from "./hooks/useEscape";
 
-import "./App.css";
-
 function App() {
   useEscape();
   useEffect(() => {
@@ -16,7 +14,9 @@ function App() {
     <div className="container">
       <h1>Tauri MacOS Spotlight App</h1>
       <p>
-        Press <kbd>Cmd</kbd>+<kbd>k</kbd> to toggle the spotlight window.
+        Press <kbd>Cmd</kbd>+<kbd>k</kbd> to toggle the spotlight window,
+        <br />
+        or press <kbd>Esc</kbd> to hide window.
       </p>
     </div>
   );
