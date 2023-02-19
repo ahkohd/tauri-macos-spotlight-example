@@ -1,4 +1,4 @@
-use std::{ffi::c_void, sync::Once};
+use std::{ffi::c_void, ops::Deref, sync::Once};
 
 use cocoa::{
     appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
@@ -6,17 +6,20 @@ use cocoa::{
     foundation::{NSPoint, NSRect},
 };
 use core_foundation::{
-    base::CFRelease,
+    base::{CFRelease, FromVoid},
+    dictionary::CFDictionary,
     number::{kCFNumberIntType, CFNumberGetValue, CFNumberRef},
 };
 use core_graphics::{
     display::{
         kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenBelowWindow,
         kCGWindowListOptionOnScreenOnly, CFArrayGetCount, CFArrayGetValueAtIndex,
-        CFDictionaryGetValueIfPresent, CFDictionaryRef, CGWindowID, CGWindowListCopyWindowInfo,
-        CGWindowListOption,
+        CFDictionaryGetValueIfPresent, CFDictionaryRef, CGRect, CGWindowID,
+        CGWindowListCopyWindowInfo, CGWindowListOption,
     },
-    window::{kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID},
+    window::{
+        kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerName, kCGWindowOwnerPID,
+    },
 };
 use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
@@ -233,7 +236,7 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
 
 /// Try to restore focus to the window behind
 fn focus_window_behind(window: &Window<Wry>) {
-    if let Ok((owner_id, window_id)) = get_window_behind_owner_id(window) {
+    if let Ok((owner_id, window_id)) = get_window_behind(window) {
         if let Ok((ax_app_ref, ax_window_ref)) =
             get_axuielements(owner_id, window_id, window.app_handle())
         {
@@ -252,10 +255,15 @@ pub enum Error {
     NoWindowBehind,
 }
 
-/// Gets the owner id of the window behind the spotlight window
-fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Error> {
-    let handle: id = window.ns_window().unwrap() as _;
+/// Gets a window behind the spotlight window
+fn get_window_behind(window: &Window<Wry>) -> Result<(pid_t, u32), Error> {
+    println!("info!(): Get the window behind the spotlight window.");
 
+    let screen_size = {
+        let monitor = get_monitor_with_cursor().unwrap();
+        monitor.size.to_logical::<f64>(monitor.scale_factor)
+    };
+    let handle: id = window.ns_window().unwrap() as _;
     let window_number: CGWindowID = unsafe { msg_send![handle, windowNumber] };
     let window_list_options: CGWindowListOption = kCGWindowListExcludeDesktopElements
         | kCGWindowListOptionOnScreenOnly
@@ -318,6 +326,28 @@ fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Erro
             Err(_) => continue,
         };
 
+        let mut window_bounds: *const c_void = std::ptr::null();
+        if unsafe {
+            CFDictionaryGetValueIfPresent(
+                window,
+                kCGWindowBounds as *mut c_void,
+                &mut window_bounds,
+            )
+        } == 0
+        {
+            continue;
+        }
+        if window_bounds.is_null() {
+            continue;
+        }
+        let window_bounds = unsafe { CFDictionary::from_void(window_bounds) };
+        let window_rect = match CGRect::from_dict_representation(window_bounds.deref()) {
+            None => {
+                continue;
+            }
+            Some(rect) => rect,
+        };
+
         let floating_window_level = unsafe {
             CGWindowLevelForKey(_CGWindowLevelKey::FloatingWindowLevelKey as CGWindowLevelKey)
         };
@@ -325,20 +355,67 @@ fn get_window_behind_owner_id(window: &Window<Wry>) -> Result<(pid_t, u32), Erro
             CGWindowLevelForKey(_CGWindowLevelKey::MainMenuWindowLevelKey as CGWindowLevelKey)
         };
 
-        // Window layer indicates:
-        // 0 - that the window is behind all other windows on the screen
-        //     it implies that might not be visible and is obscured by any other windows that are
-        //     on top of it.
-        // 1 - that the window is displayed above the desktop background, but below most other windows on the screen.
-        //     it's likely to be partially or fully obscured by other windows
-        // 2 - that the window is displayed above most other windows on the screen, it's likely
-        //     visible and accessible to the user
-        // 3 - (NSFloatingWindowLevel) that is displayed above most other windows on the screen,
-        //     it's floating - always on top
-        // 24 - that the window is the main menu, that displays the menubar at the top of the
-        //     screen. Full-screen app window is displayed above this level
+        /*
+        The window layer determines the order in which windows are displayed on the screen.
+        We're interested in the following window layers:
+        0 - The window is behind all other windows on the screen,
+            which means it might not be visible and is obscured by
+            any other windows that are on top of it.
+        1 - The window is displayed above the desktop background,
+            but below most other windows on the screen.
+            It's likely to be partially or fully obscured by other windows.
+        2 - The window is displayed above most other windows on the screen,
+            making it visible and accessible to the user.
+        3 - The window is displayed above most other windows on the screen
+            and is floating, which means it's always on top.
+        24 - The window is displayed above the main menu level.
+            Full-screen windows and windows opened with Cmd+tab are
+            displayed at this level.
+        */
 
-        if window_layer < floating_window_level || window_layer > main_menu_window_level {
+        let is_fullscreen_window =
+            window_layer > main_menu_window_level && screen_size.width == window_rect.size.width;
+        let is_regular_window = window_layer < floating_window_level;
+
+        if is_fullscreen_window {
+            println!("info!(): Detected a fullscreen window!");
+        }
+
+        if is_regular_window {
+            println!("info!(): Detected a regular window!");
+        }
+
+        if is_fullscreen_window || is_regular_window {
+            let mut window_name: *const c_void = std::ptr::null();
+            unsafe {
+                CFDictionaryGetValueIfPresent(
+                    window,
+                    kCGWindowOwnerName as *mut c_void,
+                    &mut window_name,
+                )
+            };
+            if window_name.is_null() {
+                unsafe {
+                    CFDictionaryGetValueIfPresent(
+                        window,
+                        kCGWindowOwnerName as *mut c_void,
+                        &mut window_name,
+                    )
+                };
+            }
+            let window_name: Option<String> = if window_name.is_null() {
+                None
+            } else {
+                nsstring_to_string!(window_name as id)
+            };
+
+            println!(
+                "info!(): My guess is this window named {:?}, with window ID: {:?} and process ID: {:?}",
+                window_name.unwrap(),
+                window_id,
+                owner_id
+            );
+
             unsafe {
                 CFRelease(windows.cast());
             };
