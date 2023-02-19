@@ -23,9 +23,6 @@ core-graphics = {version = "0.22.3"}
 core-foundation = { version = "0.9.3" }
 cocoa = { version = "0.24.1" }
 objc =  { version = "0.2.7" }
-accessibility-sys = { version = "0.1.3" }
-accessibility = { version = "0.1.6" }
-macos-accessibility-client = "0.0.1"
 
 
 [features]

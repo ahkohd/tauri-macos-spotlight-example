@@ -1,7 +1,10 @@
 use std::{ffi::c_void, ops::Deref, sync::Once};
 
 use cocoa::{
-    appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
+    appkit::{
+        CGFloat, NSApplicationActivationOptions, NSMainMenuWindowLevel, NSWindow,
+        NSWindowCollectionBehavior,
+    },
     base::{id, nil, BOOL, NO, YES},
     foundation::{NSPoint, NSRect},
 };
@@ -25,8 +28,6 @@ use objc::{class, msg_send, sel, sel_impl};
 use tauri::{
     GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, WindowEvent, Wry,
 };
-
-use crate::accessibility::{bring_window_to_top, focus_window, get_axuielements};
 
 #[allow(non_camel_case_types)]
 type pid_t = i32;
@@ -236,16 +237,20 @@ fn get_monitor_with_cursor() -> Option<Monitor> {
 
 /// Try to restore focus to the window behind
 fn focus_window_behind(window: &Window<Wry>) {
-    if let Ok((owner_id, window_id)) = get_window_behind(window) {
-        if let Ok((ax_app_ref, ax_window_ref)) =
-            get_axuielements(owner_id, window_id, window.app_handle())
-        {
-            if bring_window_to_top(ax_app_ref, ax_window_ref).is_ok()
-                && focus_window(ax_window_ref).is_ok()
-            {}
-
-            unsafe { CFRelease(ax_app_ref.cast()) };
-        }
+    if let Ok((owner_id, _)) = get_window_behind(window) {
+        let app: id = unsafe {
+            msg_send![
+                class!(NSRunningApplication),
+                runningApplicationWithProcessIdentifier: owner_id
+            ]
+        };
+        unsafe {
+            let _: () = msg_send![
+                app,
+                activateWithOptions:
+                    NSApplicationActivationOptions::NSApplicationActivateIgnoringOtherApps
+            ];
+        };
     }
 }
 
