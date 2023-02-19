@@ -11,6 +11,7 @@ fn main() {
             spotlight::init_spotlight_window,
             spotlight::hide_spotlight
         ])
+        .manage(spotlight::State::default())
         .setup(move |app| {
             // Set the app's activation poicy to Accessory does the following behaviours:
             // - Makes the windows of this app appear above full-screen windows of other apps.

@@ -2,7 +2,12 @@ import { invoke } from "@tauri-apps/api/tauri";
 import { useEffect } from "react";
 
 const useEscape = () => {
-  const handleEscape = () => invoke("hide_spotlight");
+  const handleEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      invoke("hide_spotlight");
+    }
+  };
 
   useEffect(() => {
     window.addEventListener("keydown", handleEscape);
