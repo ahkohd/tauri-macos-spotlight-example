@@ -28,7 +28,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.tauri.dev",
+      "identifier": "com.tauri.spotlight",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -55,14 +55,11 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 200,
-        "resizable": true,
-        "title": "tauri-macos-spotlight-app",
+        "height": 250,
         "width": 800,
         "resizable": false,
         "decorations": false,
         "center": true,
-        "alwaysOnTop": true,
         "visible": false
       }
     ]
