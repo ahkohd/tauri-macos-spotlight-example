@@ -2692,6 +2692,8 @@ dependencies = [
  "core-foundation",
  "core-graphics",
  "objc",
+ "objc-foundation",
+ "objc_id",
  "serde",
  "serde_json",
  "tauri",

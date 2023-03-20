@@ -8,16 +8,22 @@ function App() {
     invoke("init_spotlight_window");
   }, []);
 
-  useEffect(() => { }, []);
-
   return (
     <div className="container">
-      <h1>Tauri MacOS Spotlight App</h1>
-      <p>
+      <h2>Tauri MacOS Spotlight App</h2>
+      <p style={{ margin: 0 }}>
         Press <kbd>Cmd</kbd>+<kbd>k</kbd> to toggle the spotlight window,
         <br />
         or press <kbd>Esc</kbd> to hide window.
       </p>
+      <form style={{ margin: "10px 0" }}>
+        <input type="text" name="text" placeholder="Search..." />
+      </form>
+      <small>
+        This <mark>NSWindow</mark> was converted to <mark>NSPanel</mark> at
+        runtime.
+      </small>
+      <br />
     </div>
   );
 }
