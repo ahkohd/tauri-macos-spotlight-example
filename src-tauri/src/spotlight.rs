@@ -242,13 +242,33 @@ impl RawNSPanel {
             .unwrap_or_else(|| panic!("Unable to register {} class", CLS_NAME));
 
         unsafe {
+            cls.add_ivar::<BOOL>("_autoHide");
+
             cls.add_method(
                 sel!(canBecomeKeyWindow),
                 Self::can_become_key_window as extern "C" fn(&Object, Sel) -> BOOL,
             );
+
+            cls.add_method(
+                sel!(autoHide),
+                Self::_get_auto_hide as extern "C" fn(&mut Object, Sel) -> BOOL,
+            );
+
+            cls.add_method(
+                sel!(setAutoHide:),
+                Self::_set_auto_hide as extern "C" fn(&mut Object, Sel, BOOL),
+            );
         }
 
         cls.register()
+    }
+
+    extern "C" fn _get_auto_hide(this: &mut Object, _: Sel) -> BOOL {
+        unsafe { *this.get_ivar("_autoHide") }
+    }
+
+    extern "C" fn _set_auto_hide(this: &mut Object, _: Sel, value: BOOL) {
+        unsafe { this.set_ivar("_autoHide", value) };
     }
 
     /// Returns YES to ensure that RawNSPanel can become a key window
@@ -296,6 +316,10 @@ impl RawNSPanel {
 
     fn set_level(&self, level: i32) {
         let _: () = unsafe { msg_send![self, setLevel: level] };
+    }
+
+    fn set_auto_hide(&self, value: bool) {
+        let _: () = unsafe { msg_send![self, setAutoHide: value] };
     }
 
     fn set_style_mask(&self, style_mask: i32) {
@@ -379,10 +403,14 @@ impl RawNSPanelDelegate {
 
     extern "C" fn window_did_become_key(_: &Object, _: Sel, _: id) {}
 
-    /// Hide panel when it's no longer the key window
+    /// Hide panel when it's no longer the key window and auto hide is enabled
     extern "C" fn window_did_resign_key(this: &Object, _: Sel, _: id) {
         let panel: id = unsafe { *this.get_ivar("panel") };
-        let _: () = unsafe { msg_send![panel, orderOut: nil] };
+        let auto_hide: BOOL = unsafe { msg_send![panel, autoHide] };
+
+        if auto_hide == YES {
+            let _: () = unsafe { msg_send![panel, orderOut: nil] };
+        }
     }
 }
 
@@ -408,6 +436,9 @@ fn create_spotlight_panel(window: &Window<Wry>) -> ShareId<RawNSPanel> {
 
     // Set panel above the main menu window level
     panel.set_level(NSMainMenuWindowLevel + 1);
+
+    // Set panel to auto hide when it resigns key
+    panel.set_auto_hide(true);
 
     // Ensure that the panel can display over the top of fullscreen apps
     panel.set_collection_behaviour(
