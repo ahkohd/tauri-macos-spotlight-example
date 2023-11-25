@@ -10,7 +10,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             spotlight::init_spotlight_window,
             spotlight::show_spotlight,
-            spotlight::hide_spotlight
+            spotlight::hide_spotlight,
+            spotlight::will_open_file_picker,
+            spotlight::did_close_file_picker
         ])
         .manage(spotlight::State::default())
         .setup(move |app| {

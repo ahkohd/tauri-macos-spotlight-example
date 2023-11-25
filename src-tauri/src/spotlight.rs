@@ -24,6 +24,9 @@ extern "C" {
     pub fn NSMouseInRect(aPoint: NSPoint, aRect: NSRect, flipped: BOOL) -> BOOL;
 }
 
+#[allow(non_upper_case_globals)]
+pub static NSNormalWindowLevel: i32 = 2;
+
 #[derive(Default)]
 pub struct Store {
     panel: Option<ShareId<RawNSPanel>>,
@@ -146,6 +149,34 @@ pub fn show_spotlight(app_handle: AppHandle<Wry>) {
 #[tauri::command]
 pub fn hide_spotlight(app_handle: AppHandle<Wry>) {
     panel!(app_handle).order_out(None);
+}
+
+#[tauri::command]
+pub fn will_open_file_picker(app_handle: AppHandle<Wry>) {
+    println!("will_open_file_picker");
+
+    let handle = app_handle.app_handle();
+    app_handle
+        .run_on_main_thread(move || {
+            let panel = panel!(handle);
+            panel.set_level(NSNormalWindowLevel);
+            panel.set_auto_hide(false);
+        })
+        .unwrap();
+}
+
+#[tauri::command]
+pub fn did_close_file_picker(app_handle: AppHandle<Wry>) {
+    println!("did_close_file_picker");
+
+    let handle = app_handle.app_handle();
+    app_handle
+        .run_on_main_thread(move || {
+            let panel = panel!(handle);
+            panel.set_level(NSMainMenuWindowLevel + 1);
+            panel.set_auto_hide(true);
+        })
+        .unwrap();
 }
 
 /// Positions a given window at the center of the monitor with cursor
