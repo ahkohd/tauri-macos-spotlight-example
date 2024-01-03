@@ -17,6 +17,7 @@ const fmtSelectedFiles = (files: string[]) => {
   return `${files.length} files selected`;
 }
 
+
 function App() {
   const [selectedFile, setSelectedFile] = useState<string[]>([]);
 
@@ -53,11 +54,18 @@ function App() {
         <br />
         or press <kbd>Esc</kbd> to hide window.
       </p>
+      <form style={{ margin: "10px 0" }}>
+        <input type="text" name="text" placeholder="Search..." />
+      </form>
+      <small className="well">
+        This <mark>NSWindow</mark> was converted to <mark>NSPanel</mark> at
+        runtime.
+      </small>
       <br />
       <button className="file-upload" onClick={pickFile} type="button">
         {fmtSelectedFiles(selectedFile)}
       </button>
-    </div>
+    </div >
   );
 }
 
