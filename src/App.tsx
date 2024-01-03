@@ -2,6 +2,8 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import useEscape from "./hooks/useEscape";
 
+import "./App.css";
+
 function App() {
   useEscape();
   useEffect(() => {
@@ -19,7 +21,7 @@ function App() {
       <form style={{ margin: "10px 0" }}>
         <input type="text" name="text" placeholder="Search..." />
       </form>
-      <small>
+      <small className="well">
         This <mark>NSWindow</mark> was converted to <mark>NSPanel</mark> at
         runtime.
       </small>

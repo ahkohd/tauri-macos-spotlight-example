@@ -1,12 +1,14 @@
 use std::sync::{Mutex, Once};
 
+use bitflags::bitflags;
+
 use objc_id::{Id, ShareId};
 use tauri::{
     AppHandle, GlobalShortcutManager, Manager, PhysicalPosition, PhysicalSize, Window, Wry,
 };
 
 use cocoa::{
-    appkit::{CGFloat, NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior},
+    appkit::{CGFloat, NSMainMenuWindowLevel, NSView, NSWindowCollectionBehavior},
     base::{id, nil, BOOL, NO, YES},
     foundation::{NSPoint, NSRect},
 };
@@ -22,6 +24,15 @@ use objc_foundation::INSObject;
 #[link(name = "Foundation", kind = "framework")]
 extern "C" {
     pub fn NSMouseInRect(aPoint: NSPoint, aRect: NSRect, flipped: BOOL) -> BOOL;
+}
+
+bitflags! {
+    struct NSTrackingAreaOptions: u32 {
+        const NSTrackingActiveAlways = 0x80;
+        const NSTrackingMouseEnteredAndExited = 0x01;
+        const NSTrackingMouseMoved = 0x02;
+        const NSTrackingCursorUpdate = 0x04;
+    }
 }
 
 #[derive(Default)]
@@ -454,6 +465,25 @@ fn create_spotlight_panel(window: &Window<Wry>) -> ShareId<RawNSPanel> {
     let delegate = RawNSPanelDelegate::new();
     delegate.set_panel_(panel.clone());
     panel.set_delegate(Some(delegate));
+
+    // On older macOS i.e on (12.3), hover detection is not working, see https://github.com/ahkohd/tauri-macos-spotlight-example/issues/14
+    // To fix this, add a tracking view to the panel
+    let view: id = panel.content_view();
+    let bound: NSRect = unsafe { NSView::bounds(view) };
+    let track_view: id = unsafe { msg_send![class!(NSTrackingArea), alloc] };
+    let track_view: id = unsafe {
+        msg_send![
+            track_view,
+            initWithRect: bound
+            options: NSTrackingAreaOptions::NSTrackingActiveAlways
+            | NSTrackingAreaOptions::NSTrackingMouseEnteredAndExited
+            | NSTrackingAreaOptions::NSTrackingMouseMoved
+            | NSTrackingAreaOptions::NSTrackingCursorUpdate
+            owner: view
+            userInfo: nil
+        ]
+    };
+    let () = unsafe { msg_send![view, addTrackingArea: track_view] };
 
     panel
 }
