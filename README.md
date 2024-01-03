@@ -2,6 +2,8 @@
 
 This is an example project that shows how to create a macOS Spotlight app using Tauri.
 
+> Checkout the [file-upload](https://github.com/ahkohd/tauri-macos-spotlight-example/tree/file-upload) branch for an example of the spotlight app, now featuring file upload functionality. See it in action [here](https://github.com/ahkohd/tauri-macos-spotlight-example/issues/12#issuecomment-1826410794).
+
 This template is based on Tauri + React + Typescript template. It should help get you started developing with Tauri, React and Typescript in Vite.
 
 ## Prerequisites
