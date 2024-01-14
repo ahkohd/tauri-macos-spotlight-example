@@ -8,7 +8,10 @@ use tauri::{
 };
 
 use cocoa::{
-    appkit::{CGFloat, NSMainMenuWindowLevel, NSView, NSWindowCollectionBehavior},
+    appkit::{
+        CGFloat, NSMainMenuWindowLevel, NSView, NSViewHeightSizable, NSViewWidthSizable,
+        NSWindowCollectionBehavior,
+    },
     base::{id, nil, BOOL, NO, YES},
     foundation::{NSPoint, NSRect},
 };
@@ -514,6 +517,8 @@ fn create_spotlight_panel(window: &Window<Wry>) -> ShareId<RawNSPanel> {
             userInfo: nil
         ]
     };
+    let auto_resizing_mask = NSViewWidthSizable | NSViewHeightSizable;
+    let () = unsafe { msg_send![view, setAutoresizingMask: auto_resizing_mask] };
     let () = unsafe { msg_send![view, addTrackingArea: track_view] };
 
     panel
