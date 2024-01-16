@@ -40,6 +40,13 @@ pnpm tauri dev
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
+# Related
+
+The following are related to this project:
+
+- [tauri-nspanel](https://github.com/ahkohd/tauri-nspanel/tree/main/examples/vanilla): A Tauri plugin that enables the transformation of a standard application window into a panel, providing panel-specific functionalities and methods. It is designed for versatile application across various projects.
+- [tauri-plugin-spotlight](https://github.com/zzzze/tauri-plugin-spotlight): Also a Tauri plugin that helps you to emulate a spotlight window behavior. Unlike the `tauri-nspanel` or this example project, it does not utilize a panel. As a result, its ability to draw over fullscreen applications on newer macOS versions may be limited.
+
 # License
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE.md) file for details.
