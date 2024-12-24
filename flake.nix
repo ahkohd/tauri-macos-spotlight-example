@@ -29,7 +29,7 @@
 
       buildInputs = p: with p; [ apple-sdk_12 ];
 
-      commonPackages = p: with p; [ nodejs_22 corepack_22 bacon ];
+      commonPackages = p: with p; [ cargo-tauri_1 nodejs_22 corepack_22 bacon ];
 
     in {
       devShells = {
