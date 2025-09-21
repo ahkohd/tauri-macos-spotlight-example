@@ -7,7 +7,7 @@ use crate::SPOTLIGHT_LABEL;
 pub fn show(app_handle: AppHandle) {
     let panel = app_handle.get_webview_panel(SPOTLIGHT_LABEL).unwrap();
 
-    panel.show();
+    panel.show_and_make_key();
 }
 
 #[tauri::command]
@@ -15,6 +15,6 @@ pub fn hide(app_handle: AppHandle) {
     let panel = app_handle.get_webview_panel(SPOTLIGHT_LABEL).unwrap();
 
     if panel.is_visible() {
-        panel.order_out(None);
+        panel.hide();
     }
 }
