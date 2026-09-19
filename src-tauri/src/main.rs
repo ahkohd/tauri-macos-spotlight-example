@@ -37,7 +37,10 @@ fn main() {
                     if event.state == ShortcutState::Pressed
                         && shortcut.matches(Modifiers::SUPER, Code::KeyK)
                     {
-                        let window = app.get_webview_window(SPOTLIGHT_LABEL).unwrap();
+                        let Some(window) = app.get_webview_window(SPOTLIGHT_LABEL) else {
+                            eprintln!("spotlight window not found");
+                            return;
+                        };
 
                         match app
                             .get_webview_panel(SPOTLIGHT_LABEL)
@@ -47,7 +50,9 @@ fn main() {
                                 if panel.is_visible() {
                                     panel.hide();
                                 } else {
-                                    window.center_at_cursor_monitor().unwrap();
+                                    if let Err(error) = window.center_at_cursor_monitor() {
+                                        eprintln!("unable to center spotlight panel: {error}");
+                                    }
                                     panel.show_and_make_key();
                                 }
                             }
